@@ -1,0 +1,22 @@
+{
+  "name": "tracejs",
+  "version": "1.0.0",
+  "description": "traceroute command implemented in node",
+  "main": "traceroute.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tflopezhidalgo/tracejs.git"
+  },
+  "author": "Tomás Lopez Hidalgo",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/tflopezhidalgo/tracejs/issues"
+  },
+  "homepage": "https://github.com/tflopezhidalgo/tracejs#readme",
+  "dependencies": {
+    "raw-socket": "^1.7.0"
+  }
+}
