@@ -4,7 +4,7 @@ const raw = require('raw-socket');
 
 // adjust port based on tcpdump output
 const SRC_PORT = 52692;
-const DST_PORT = 2048
+const DST_PORT = 3000;
 
 const ip2hex = (ip) => {
   let hexip = ip.split('.').map(Number);
@@ -16,6 +16,22 @@ const port2hex = (port) => {
   const dec2hex = (n) => (n + 0x10000).toString(16).substr(-4).toUpperCase();
 
   return Buffer.from(dec2hex(port), 'hex');
+}
+
+const unpack = (buffer) => {
+  const version = ((0b11110000 & buffer.slice(0, 1).readUint8(0)) >> 4);
+  const ttl = buffer.slice(8, 9).readUint8();
+  const proto = buffer.slice(9, 10);
+  const src = buffer.slice(12, 16).map(x => x).join('.');
+  const dst = buffer.slice(16, 20).map(x => x).join('.');
+
+  return { version, ttl, proto, src, dst };
+}
+
+const ppPacket = (buffer) => {
+  const packet = unpack(buffer);
+
+  console.log(packet.dst);
 }
 
 const buildDummyUDP = (destination) => {
@@ -31,7 +47,7 @@ const buildDummyUDP = (destination) => {
   /* dummy packet UDP */
   /* dst port 2048 */
 
-  let sendBuffer = Buffer.concat([
+  const sendBuffer = Buffer.concat([
     port2hex(SRC_PORT),
     port2hex(DST_PORT),
     Buffer.from([0x00, 0x08]),
@@ -50,52 +66,18 @@ const buildDummyUDP = (destination) => {
   *  +--------+--------+--------+--------+
   */
 
-  let pseudoHdrBuf = new Buffer.concat([
+  const pseudoHdrBuf = new Buffer.concat([
     ip2hex('127.0.0.1'),                  // source address (4 bytes)
     ip2hex(destination),
     Buffer.from([0x00, 0x11, 0x00, 0x08]), // zero, protocol, UDP length (4 bytes)
   ]);
 
+  // FIXME: bad chksum 0
   let chckSum = raw.createChecksum(pseudoHdrBuf, sendBuffer);
 
   raw.writeChecksum(sendBuffer, 6, chckSum);
 
   return sendBuffer;
-}
-
-class IcmpPckt {
-
-  constructor(buffer) {
-    this._version = buffer.slice(0, 1);
-    this._ttl = buffer.slice(8, 9);
-    this.proto = buffer.slice(9, 10);
-    this._srcIp = buffer.slice(12, 16);
-    this._dstIp = buffer.slice(16, 20);
-  }
-
-  srcIp() {
-    /* TODO: use map */
-      let srcIp1 = this._srcIp.slice(0,1);
-    let srcIp2 = this._srcIp.slice(1,2);
-    let srcIp3 = this._srcIp.slice(2,3);
-    let srcIp4 = this._srcIp.slice(3,4);
-
-    return [srcIp1.readUint8(), srcIp2.readUint8(), srcIp3.readUint8(), srcIp4.readUint8()].join('.');
-  }
-
-  dstIp() {
-    /* TODO: use map */
-      let dstIp1 = this._dstIp.slice(0,1);
-    let dstIp2 = this._dstIp.slice(1,2);
-    let dstIp3 = this._dstIp.slice(2,3);
-    let dstIp4 = this._dstIp.slice(3,4);
-
-    return [dstIp1.readUint8(), dstIp2.readUint8(), dstIp3.readUint8(), dstIp4.readUint8()].join('.');
-  }
-
-  ttl() { return this._ttl.readUint8(); }
-
-  version() { return ((0b11110000 & this._version.readUint8(0)) >> 4); }
 }
 
 const sendOneDummyPacket = (sock, ctx) => {
@@ -120,8 +102,11 @@ const sendOneDummyPacket = (sock, ctx) => {
   sock.send(dummyUdp, 0, dummyUdp.length, ctx.dstIp, beforeSend, afterSend);
 }
 
+
 const traceroute = (destination) => {
   const probeSock = raw.createSocket({ protocol: raw.Protocol.ICMP });
+
+  // TODO: maybe we should use another ICMP here, since UDP gets dropped everytime
   const dummySock = raw.createSocket({ protocol: raw.Protocol.UDP });
 
   let sockCtx = {
@@ -132,20 +117,16 @@ const traceroute = (destination) => {
 
   sendOneDummyPacket(dummySock, sockCtx);
 
-  probeSock.on ("message", (buffer, source) => {
-    console.log("---------- Received " + buffer.length + " bytes from " + source + "----------");
+  probeSock.on("message", (buffer, source) => {
+    console.log("-> Received " + buffer.length + "B from " + source + "<-");
 
-    /* TODO:
-      *  - unpack icmp pckt
-      *  - show path trace
-      */
-
+    ppPacket(buffer);
   });
 
   /* keep running until the end of times */
-    /* this is needed for receive icmp replies
-    * that can take a little long to arrive */
-    // TODO: keep running until icmp invalid port
+  /* this is needed for receive icmp replies
+   * that can take a little long to arrive */
+  // TODO: keep running until icmp invalid port
 
   setInterval(() => process.exit(0), 1 << 30);
 }
@@ -156,7 +137,9 @@ if (require.main == module) {
     console.log('Usage: sudo ' + process.argv[1] + ' <destination ip>');
     process.exit(1);
   }
-  let destination = process.argv[2];
-  console.log(destination)
+  const destination = process.argv[2];
+
+  console.log(`Tracerouting to ${destination}:${DST_PORT}`);
+
   traceroute(destination);
 }
